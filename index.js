@@ -6,7 +6,7 @@
 const express=require("express");
 const jwt = require("jsonwebtoken");
 const {authMiddlewear} = require("./middlewear");
-const {userModel, organisationModel} = require("./models");
+const {userModel, organisationModel, boardModel, issueModel} = require("./models");
 
 const users=[];
 const organisations=[/*{
@@ -179,12 +179,74 @@ app.post("/add-members-to-organisation", authMiddlewear, async (req,res)=>{
     })
 })
 
-app.post("/board", (req,res)=>{
+app.post("/board", authMiddlewear, async (req,res)=>{
+
+    const userId = req.userId;
+
+    const title = req.body.title;
+    const organisationId = req.query.organisationId;
+
+    const organisation = await organisationModel.findOne({
+        _id: organisationId
+    })
     
+    if(!organisation || organisation.admin.toString() !== userId.toString()){
+        res.status(411).json({
+            message: "Either this org does not exist or you are not an admin of this org"
+        })
+        return;
+    }
+
+    const newBoard = await boardModel.create({
+        title,
+        organisationId
+    })
+
+    res.json({
+        message: "Board created successfully",
+        id: newBoard._id
+    })
 })
 
-app.post("/issue", (req,res)=>{
+app.post("/issue", authMiddlewear, async (req,res)=>{
     
+    const userId = req.userId;
+    const title = req.body.title;
+    const state = req.body.state;
+    const boardId = req.query.boardId;
+
+    const board = await boardModel.findOne({
+        _id: boardId
+    })
+
+    if(!board){
+        res.status(411).json({
+            message: "Board with this ID does not exist"
+        })
+        return;
+    }
+
+    const organisation = await organisationModel.findOne({
+        _id: board.organisationId
+    })
+
+    if(!organisation.members.find(m => m.toString() === userId.toString()) || organisation.admin.toString() !== userId.toString()){
+        res.status(411).json({
+            message: "You are not a member of this organisation or admin of this organisation"
+        })
+        return;
+    }
+
+    const newIssue = await issueModel.create({
+        title,
+        boardId,
+        state
+    })
+
+    res.json({
+        message: "Issue created successfully",
+        id: newIssue._id
+    })
 })
 
 // READ ENDPOINTS
@@ -222,18 +284,153 @@ app.get("/organisation", authMiddlewear, async (req,res)=>{
 
 })
 
-app.get("/boards", (req,res)=>{
-    
+app.get("/boards", authMiddlewear, async (req,res)=>{
+    const userId = req.userId;
+
+    // const title = req.body.title;
+    const organisationId = req.query.organisationId;
+
+    const organisation = await organisationModel.findOne({
+        _id: organisationId
+    })
+
+    if(!organisation || organisation.admin.toString() !== userId.toString()){
+        res.status(411).json({
+            message: "Either this org does not exist or you are not an admin of this org"
+        })
+        return;
+    }
+
+    if(!organisation.members.find(m => m.toString() === userId.toString())){
+        res.status(411).json({
+            message: "You are not a member of this organisation"
+        })
+        return;
+    }
+
+    const boards = await boardModel.find({
+        organisationId: organisationId
+    })
+
+    res.json({
+        boards
+    })
 })
-app.get("/issues", (req,res)=>{
+
+app.get("/issues", authMiddlewear, async (req,res)=>{
+
+    const userId = req.userId;
+    const boardId = req.query.boardId;
+
+    const board = await boardModel.findOne({
+        _id: boardId
+    })
+
+    if(!board){
+        res.status(411).json({
+            message: "Board with this ID does not exist"
+        })
+        return;
+    }
+
+    const organisation = await organisationModel.findOne({
+        _id: board.organisationId
+    })
+
+    if(!organisation.members.find(m => m.toString() === userId.toString()) || organisation.admin.toString() !== userId.toString()){
+        res.status(411).json({
+            message: "You are not a member of this organisation or admin of this organisation"
+        })
+        return;
+    }
+
+    const issues = await issueModel.find({
+        boardId: boardId
+    })
+
+    res.json({
+        issues
+    })
+})
+
+app.get("/members", authMiddlewear, async (req,res)=>{
+
+    const userId = req.userId;
+    const organisationId = req.query.organisationId;
+
+    const organisation = await organisationModel.findOne({
+        _id: organisationId
+    })
+
+    if(!organisation || organisation.admin.toString() !== userId){
+        res.status(411).json({
+            message: "Either this org does not exist or you are not an admin of this org"
+        })
+        return;
+    }
+
+    const members = await userModel.find({
+        _id: organisation.members
+    });
+
+    res.json({
+        members: members.map(m=>({
+            username: m.username,
+            id: m._id
+        }))
+    })
     
 })
 
-app.get("/members", (req,res)=>{
-    
-})
+app.put("/issue", authMiddlewear, async (req,res)=>{
 
-app.put("/issue", (req,res)=>{
+    const userId = req.userId;
+    const issueId = req.body.issueId;
+    const newState = req.body.state;
+
+    const issue = await issueModel.findOne({
+        _id: issueId
+    })
+
+    if(!issue){
+        res.status(411).json({
+            message: "Issue with this ID does not exist"
+        })
+        return;
+    }
+
+    const board = await boardModel.findOne({
+        _id: issue.boardId
+    })
+
+    if(!board){
+        res.status(411).json({
+            message: "Board with this ID does not exist"
+        })
+        return;
+    }
+
+    const organisation = await organisationModel.findOne({
+        _id: board.organisationId
+    })
+
+    if(!organisation.members.find(m => m.toString() === userId.toString()) || organisation.admin.toString() !== userId.toString()){
+        res.status(411).json({
+            message: "You are not a member of this organisation or admin of this organisation"
+        })
+        return;
+    }
+
+    // await issueModel.findByIdAndUpdate(issueId, {
+    //     state: newState
+    // })
+
+    issue.state = newState;
+    await issue.save();
+
+    res.json({
+        message: "Issue state updated successfully"
+    })
     
 })
 
